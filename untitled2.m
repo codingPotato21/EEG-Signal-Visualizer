@@ -13,6 +13,10 @@ time = b1(:,1);
 left_eeg = b1(:,2);
 right_eeg = b1(:,3);
 
+figure
+plot(time, left_eeg)
+title("Original signal")
+
 %% Find the FFT
 
 % Find the shifted FFT
@@ -63,10 +67,8 @@ fpass2 = fstop2 - (shift_region);
 % Find filter order
 Rp = 1; % passband ripple
 Rs = 40; % stopband attenuation
-
 Wp = [fpass1, fpass2] / (fs/2); % Normalized passband freq
 Ws = [fstop1, fstop2] / (fs/2); % Normalized stopband freq
-
 [order, Wn] = buttord(Wp, Ws, Rp, Rs);
 
 % Design the filter
@@ -81,3 +83,52 @@ filtered_fft = fftshift(abs(fft(filtered_signal, n)));
 figure
 plot(shifted_frequencies, filtered_fft);
 title("Filtered FFT")
+
+%% Find the gamma signal using bandpass filter
+
+% Get the filtered signal
+
+% Filter parameters
+fpass1 = 32;
+fstop1 = 31.5;
+
+% Find filter order
+Rp = 1;
+Rs = 60;
+Wp = fpass1 / (fs/2); % Normalized passband freq
+Ws = fstop1 / (fs/2); % Normalized stopband freq
+[order, Wn] = cheb2ord(Wp, Ws, Rp, Rs, 's');
+
+% Find filter coefficients
+[b, a] = cheby2(order, Rs, Wn, 'high', 's');
+
+filtered_signal = filter(b, a, filtered_fft);
+
+figure
+plot(time, filtered_signal)
+title("Extracted gamma signal")
+
+%% Find the alpha
+
+% Filter parameters
+% The frequencies for gamma signal is usually between 30 - 100 Hz
+fpass1 = 8;
+fpass2 = 12;
+fstop1 = 7.5;
+fstop2 = 12.5;
+
+% Find filter order
+Rp = 1;
+Rs = 20;
+Wp = [fpass1, fpass2] / (fs/2); % Normalized passband freq
+Ws = [fstop1, fstop2] / (fs/2); % Normalized cutoff freq
+[order, Wn] = cheb2ord(Wp, Ws, Rp, Rs, 's');
+
+% Find filter coefficients
+[b, a] = cheby2(order, Rs, Wn, 'bandpass', 's');
+
+filtered_signal = filter(b, a, filtered_fft);
+
+figure
+plot(time, filtered_signal)
+title("Extracted alpha signal")
