@@ -9,126 +9,207 @@ load('EEG.mat');
 %% Get the signals
 
 % Get the left and right EEG signals from file
-time = b1(:,1);
+file_time = b1(:,1);
 left_eeg = b1(:,2);
 right_eeg = b1(:,3);
 
-figure
+% Trim the signal and remove 0 values at the start and end
+first_nonzero_index = find(left_eeg ~= 0, 1, 'first');
+last_nonzero_index = find(left_eeg ~= 0, 1, 'last');
+left_eeg = left_eeg(first_nonzero_index:last_nonzero_index);
+
+% Find the sampling freq and signal time
+n = length(left_eeg);
+fs = n / max(file_time);
+time = (0:n-1) / fs;
+
+fg = figure();
+subplot(4, 1, 1)
 plot(time, left_eeg)
 title("Original signal")
+ylabel("Voltage (uV)")
+xlabel("Time (seconds)")
 
 %% Find the FFT
 
-% Find the shifted FFT
 n = length(left_eeg);
-signal_fft = fftshift(abs(fft(left_eeg, n)));
-frequencies = (0:n-1);
+left_fft = abs(fft(left_eeg, n));
+frequencies = (0:n-1) * (fs/n);
 
-% Find the center peak of the FFT
-[peaks, positions] = findpeaks(signal_fft, 'SortStr', 'descend');
-max_positions = positions(1:2);
-center = (max_positions(2) + max_positions(1)) / 2;
+subplot(4, 1, 2)
+plot(frequencies, left_fft)
+title("Original FFT")
+ylabel("|x| (uV)")
+xlabel("Frequency (Hz)")
 
+%{
 % Find the peaks where the noise happen
-peakThresh = peaks(1) * 0.25;
-[peaks, positions] = findpeaks(signal_fft, 'MinPeakHeight', peakThresh);
+peakThresh = max(signal_fft) * 0.25;
+[peaks, positions] = findpeaks(signal_fft, frequencies, 'MinPeakHeight', peakThresh);
 first_peak = min(positions);
 last_peak = max(positions);
 
 figure
 plot(frequencies, signal_fft)
 hold('on')
-plot([first_peak last_peak max_positions(1) max_positions(2)], [0 0 0 0], 'rv', 'MarkerFaceColor', 'b')
+plot(positions, peaks, 'rv', 'MarkerFaceColor', 'b')
 hold('off')
-title("Signal Peaks")
+title("FFT Peaks")
+%}
 
-%% Center the FFT around 0
+%% Filter the original signal using frequencies from the FFT
 
-% Center the shifted FFT at 0 on the x-axis
-range = (length(signal_fft) - center) * 2;
-shifted_frequencies = range*linspace(-1, 1, n);
+% Filter signal with filter designer
 
-figure
-plot(shifted_frequencies, signal_fft);
-title("Shifted FFT")
+Fpass1 = 48.5;        % First Passband Frequency
+Fstop1 = 49;          % First Stopband Frequency
+Fstop2 = 51;          % Second Stopband Frequency
+Fpass2 = 51.5;        % Second Passband Frequency
+Apass1 = 1;           % First Passband Ripple (dB)
+Astop  = 60;          % Stopband Attenuation (dB)
+Apass2 = 1;           % Second Passband Ripple (dB)
+match  = 'stopband';  % Band to match exactly
 
-%% Filter the noise out using bandpass filter
+% Construct an FDESIGN object and call its CHEBY2 method.
+h  = fdesign.bandstop(Fpass1, Fstop1, Fstop2, Fpass2, Apass1, Astop, ...
+                      Apass2, fs);
+Hd = design(h, 'cheby2', 'MatchExactly', match);
 
-% Find sampling freq
-fs = n / max(time);
+filtered_signal = filter(Hd, left_eeg);
 
-% Filter parameters
-shift_region = fs * 0.075;
-fstop1 = (first_peak / 100) - (shift_region * 2);
-fstop2 = (first_peak / 100) + (shift_region * 2);
-fpass1 = fstop1 + (shift_region);
-fpass2 = fstop2 - (shift_region);
+filtered_fft = abs(fft(filtered_signal));
 
-% Find filter order
-Rp = 1; % passband ripple
-Rs = 40; % stopband attenuation
-Wp = [fpass1, fpass2] / (fs/2); % Normalized passband freq
-Ws = [fstop1, fstop2] / (fs/2); % Normalized stopband freq
-[order, Wn] = buttord(Wp, Ws, Rp, Rs);
+subplot(4, 1, 3)
+plot(time, filtered_signal);
+title("Filtered Signal")
+ylabel("Voltage (uV)")
+xlabel("Time (seconds)")
 
-% Design the filter
-[b, a] = butter(order, Wn, 'stop');
-
-% Filter the original signal
-filtered_signal = filter(b, a, left_eeg);
-
-% Find fft of filtered signal
-filtered_fft = fftshift(abs(fft(filtered_signal, n)));
-
-figure
-plot(shifted_frequencies, filtered_fft);
+subplot(4, 1, 4)
+plot(frequencies, filtered_fft);
 title("Filtered FFT")
+ylabel("|x| (uV)")
+xlabel("Frequency (Hz)")
 
-%% Find the gamma signal using bandpass filter
+%% Gamma signal
 
-% Get the filtered signal
+Fstop = 31.5;        % Stopband Frequency
+Fpass = 32;          % Passband Frequency
+Astop = 80;          % Stopband Attenuation (dB)
+Apass = 1;           % Passband Ripple (dB)
+match = 'stopband';  % Band to match exactly
 
-% Filter parameters
-fpass1 = 32;
-fstop1 = 31.5;
+% Construct an FDESIGN object and call its CHEBY2 method.
+h  = fdesign.highpass(Fstop, Fpass, Astop, Apass, fs);
+Hd = design(h, 'cheby2', 'MatchExactly', match);
 
-% Find filter order
-Rp = 1;
-Rs = 60;
-Wp = fpass1 / (fs/2); % Normalized passband freq
-Ws = fstop1 / (fs/2); % Normalized stopband freq
-[order, Wn] = cheb2ord(Wp, Ws, Rp, Rs, 's');
+gamma_signal = filter(Hd, filtered_signal);
 
-% Find filter coefficients
-[b, a] = cheby2(order, Rs, Wn, 'high', 's');
+fg2 = figure();
+subplot(5, 1, 1)
+plot(time, gamma_signal)
+title("Gamma Signal")
+xlabel("Time (seconds)")
+ylabel("|x| (nV)")
+xlim([0, 10])
+ylim('auto')
 
-filtered_signal = filter(b, a, filtered_fft);
+%% Beta signal
 
-figure
-plot(time, filtered_signal)
-title("Extracted gamma signal")
+Fstop1 = 12.5;        % First Stopband Frequency
+Fpass1 = 13;          % First Passband Frequency
+Fpass2 = 30;          % Second Passband Frequency
+Fstop2 = 30.5;        % Second Stopband Frequency
+Astop1 = 60;          % First Stopband Attenuation (dB)
+Apass  = 1;           % Passband Ripple (dB)
+Astop2 = 80;          % Second Stopband Attenuation (dB)
+match  = 'stopband';  % Band to match exactly
 
-%% Find the alpha
+% Construct an FDESIGN object and call its CHEBY2 method.
+h  = fdesign.bandpass(Fstop1, Fpass1, Fpass2, Fstop2, Astop1, Apass, Astop2, fs);
+Hd = design(h, 'cheby2', 'MatchExactly', match);
 
-% Filter parameters
-% The frequencies for gamma signal is usually between 30 - 100 Hz
-fpass1 = 8;
-fpass2 = 12;
-fstop1 = 7.5;
-fstop2 = 12.5;
+beta_signal = filter(Hd, filtered_signal);
 
-% Find filter order
-Rp = 1;
-Rs = 20;
-Wp = [fpass1, fpass2] / (fs/2); % Normalized passband freq
-Ws = [fstop1, fstop2] / (fs/2); % Normalized cutoff freq
-[order, Wn] = cheb2ord(Wp, Ws, Rp, Rs, 's');
+subplot(5, 1, 2)
+plot(time, beta_signal)
+title("Beta Signal")
+xlabel("Time (seconds)")
+ylabel("|x| (nV)")
+xlim([0, 10])
+ylim('auto')
 
-% Find filter coefficients
-[b, a] = cheby2(order, Rs, Wn, 'bandpass', 's');
+%% Alpha signal
 
-filtered_signal = filter(b, a, filtered_fft);
+Fstop1 = 7.5;         % First Stopband Frequency
+Fpass1 = 8;           % First Passband Frequency
+Fpass2 = 12;          % Second Passband Frequency
+Fstop2 = 12.5;        % Second Stopband Frequency
+Astop1 = 60;          % First Stopband Attenuation (dB)
+Apass  = 1;           % Passband Ripple (dB)
+Astop2 = 80;          % Second Stopband Attenuation (dB)
+match  = 'stopband';  % Band to match exactly
 
-figure
-plot(time, filtered_signal)
-title("Extracted alpha signal")
+% Construct an FDESIGN object and call its CHEBY2 method.
+h  = fdesign.bandpass(Fstop1, Fpass1, Fpass2, Fstop2, Astop1, Apass, Astop2, fs);
+Hd = design(h, 'cheby2', 'MatchExactly', match);
+
+alpha_signal = filter(Hd, filtered_signal);
+
+subplot(5, 1, 3)
+plot(time, alpha_signal)
+title("Alpha Signal")
+xlabel("Time (seconds)")
+ylabel("|x| (nV)")
+xlim([0, 10])
+ylim('auto')
+
+%% Theta signal
+
+Fstop1 = 3.5;         % First Stopband Frequency
+Fpass1 = 4;           % First Passband Frequency
+Fpass2 = 7;           % Second Passband Frequency
+Fstop2 = 7.1;         % Second Stopband Frequency
+Astop1 = 60;          % First Stopband Attenuation (dB)
+Apass  = 1;           % Passband Ripple (dB)
+Astop2 = 80;          % Second Stopband Attenuation (dB)
+match  = 'stopband';  % Band to match exactly
+
+% Construct an FDESIGN object and call its CHEBY2 method.
+h  = fdesign.bandpass(Fstop1, Fpass1, Fpass2, Fstop2, Astop1, Apass, Astop2, fs);
+Hd = design(h, 'cheby2', 'MatchExactly', match);
+
+theta_signal = filter(Hd, filtered_signal);
+
+subplot(5, 1, 4)
+plot(time, theta_signal)
+title("Theta Signal")
+xlabel("Time (seconds)")
+ylabel("|x| (nV)")
+xlim([0, 10])
+ylim('auto')
+
+%% Delta signal
+
+Fstop1 = 0.01;        % First Stopband Frequency
+Fpass1 = 0.2;         % First Passband Frequency
+Fpass2 = 4;           % Second Passband Frequency
+Fstop2 = 4.1;         % Second Stopband Frequency
+Astop1 = 60;          % First Stopband Attenuation (dB)
+Apass  = 1;           % Passband Ripple (dB)
+Astop2 = 80;          % Second Stopband Attenuation (dB)
+match  = 'stopband';  % Band to match exactly
+
+% Construct an FDESIGN object and call its CHEBY2 method.
+h  = fdesign.bandpass(Fstop1, Fpass1, Fpass2, Fstop2, Astop1, Apass, Astop2, fs);
+Hd = design(h, 'cheby2', 'MatchExactly', match);
+
+delta_signal = filter(Hd, filtered_signal);
+
+subplot(5, 1, 5)
+plot(time, delta_signal)
+title("Delta Signal")
+xlabel("Time (seconds)")
+ylabel("|x| (nV)")
+xlim([0, 10])
+ylim('auto')
