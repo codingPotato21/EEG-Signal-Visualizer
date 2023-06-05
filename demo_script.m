@@ -39,23 +39,8 @@ frequencies = (0:n-1) * (fs/n);
 subplot(4, 1, 2)
 plot(frequencies, left_fft)
 title("Original FFT")
-ylabel("|x| (uV)")
+ylabel("|x|")
 xlabel("Frequency (Hz)")
-
-%{
-% Find the peaks where the noise happen
-peakThresh = max(signal_fft) * 0.25;
-[peaks, positions] = findpeaks(signal_fft, frequencies, 'MinPeakHeight', peakThresh);
-first_peak = min(positions);
-last_peak = max(positions);
-
-figure
-plot(frequencies, signal_fft)
-hold('on')
-plot(positions, peaks, 'rv', 'MarkerFaceColor', 'b')
-hold('off')
-title("FFT Peaks")
-%}
 
 %% Filter the original signal using frequencies from the FFT
 
@@ -88,7 +73,7 @@ xlabel("Time (seconds)")
 subplot(4, 1, 4)
 plot(frequencies, filtered_fft);
 title("Filtered FFT")
-ylabel("|x| (uV)")
+ylabel("|x|")
 xlabel("Frequency (Hz)")
 
 %% Gamma signal
@@ -110,7 +95,7 @@ subplot(5, 1, 1)
 plot(time, gamma_signal)
 title("Gamma Signal")
 xlabel("Time (seconds)")
-ylabel("|x| (nV)")
+ylabel("Voltage (uV)")
 xlim([0, 10])
 ylim('auto')
 
@@ -135,7 +120,7 @@ subplot(5, 1, 2)
 plot(time, beta_signal)
 title("Beta Signal")
 xlabel("Time (seconds)")
-ylabel("|x| (nV)")
+ylabel("Voltage (uV)")
 xlim([0, 10])
 ylim('auto')
 
@@ -160,7 +145,7 @@ subplot(5, 1, 3)
 plot(time, alpha_signal)
 title("Alpha Signal")
 xlabel("Time (seconds)")
-ylabel("|x| (nV)")
+ylabel("Voltage (uV)")
 xlim([0, 10])
 ylim('auto')
 
@@ -185,7 +170,7 @@ subplot(5, 1, 4)
 plot(time, theta_signal)
 title("Theta Signal")
 xlabel("Time (seconds)")
-ylabel("|x| (nV)")
+ylabel("Voltage (uV)")
 xlim([0, 10])
 ylim('auto')
 
@@ -210,6 +195,44 @@ subplot(5, 1, 5)
 plot(time, delta_signal)
 title("Delta Signal")
 xlabel("Time (seconds)")
-ylabel("|x| (nV)")
+ylabel("Voltage (uV)")
 xlim([0, 10])
 ylim('auto')
+
+%% Plotting filter
+
+% Compute the frequency response
+freq = linspace(0, fs/2, n);
+[H, f] = freqz(Hd, freq, fs);
+
+% Convert freq response to phase response in radians
+phase = unwrap(angle(H));
+
+% Find the maximum value of the phase response
+max_phase = max(phase);
+
+% Align the phase response by subtracting the maximum phase value
+aligned_phase = phase - max_phase;
+
+% Plot magnitude response in dB
+figure
+yyaxis left;
+plot(f, 20*log10(H), 'b');
+xlabel('Frequency (Hz)');
+ylabel('Magnitude Response (dB)');
+title('Delta Filter Magnitude/Phase Response');
+
+% Set the y-axis limits for each plot
+ylim(gca, [-100, 0]); % Set the y-axis limits for the magnitude plot
+
+yyaxis right
+% Plot phase response in radians
+plot(f, aligned_phase, 'r')
+ylabel("Phase Response (radians)")
+
+% Set the y-axis limits for each plot
+ylim(gca, [min(aligned_phase), 0]); % Set the y-axis limits for the magnitude plot
+
+xlim(gca, [0, fs/2])
+grid("on")
+legend("Magnitude", "Phase")
